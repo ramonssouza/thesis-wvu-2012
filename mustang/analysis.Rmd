@@ -1,0 +1,172 @@
+---
+title: "geodata"
+author: "Stephen Roecker"
+date: "November 5, 2018"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+
+```{r packages}
+library(ggplot2)
+library(dplyr)
+```
+
+# Tidy Old Data
+
+```{r munge}
+load("D:/geodata/project_data/thesis_wvu/mustang_RdataAnalysis_lidar.RData")
+
+lidar <- rbind(
+  # Gilmer
+  stack(gil01m.df),
+  stack(gil03m.df),
+  stack(gil09m.df),
+  stack(gil27m.df),
+  # Jefferson
+  stack(jef01m.df),
+  stack(jef03m.df),
+  stack(jef09m.df),
+  stack(jef27m.df)
+  )
+lidar <- within(lidar, {
+  loc = ifelse(grepl("gil", ind), "gilmer", "jefferson")
+  
+  res = NA
+  res[grepl("01m", ind)] = 1
+  res[grepl("03m", ind)] = 3
+  res[grepl("09m", ind)] = 9
+  res[grepl("27m", ind)] = 27
+  
+  var = NA
+  var[grepl("sgp", ind)] = "slope"
+  var[grepl("sa", ind)]  = "aspect"
+  var[grepl("kp", ind)]  = "cupro"
+  var[grepl("kt", ind)]  = "cutan"
+  
+  ws = NA
+  ws[grepl("3w", ind)]   = 3
+  ws[grepl("5w", ind)]   = 5
+  ws[grepl("7w", ind)]   = 7
+  ws[grepl("9w", ind)]   = 9
+  ws[grepl("15w", ind)]  = 15
+  ws[grepl("21w", ind)]  = 21
+  ws[grepl("27w", ind)]  = 27
+  ws[grepl("45w", ind)]  = 45
+  ws[grepl("63w", ind)]  = 63
+  
+  ns  = as.factor(res * ws)
+  res = as.factor(res)
+  ws  = as.factor(ws)
+  })
+
+lidar <- lidar[c("loc", "res", "ns", "ws", "var", "values")]
+
+save(lidar, gil27m_nodes.sp, jef27m_nodes.sp, file = "D:/geodata/project_data/thesis_wvu/lidar.RData")
+
+```
+
+
+# Create Boxplots
+
+```{r boxplots}
+load(file = "D:/geodata/project_data/thesis_wvu/lidar.RData")
+
+# slope boxplots
+filter(lidar, var == "slope" & loc == "gilmer") %>%
+ggplot(aes(x = ns, y = values)) +
+  geom_boxplot() +
+  facet_wrap(~ res) +
+  xlab("neighborhood size (meters)") +
+  ylab("slope gradient (%)") + ylim(0, 100) + labs(caption = "y-axis max set at 100") +
+  ggtitle("Gilmer")
+
+filter(lidar, var == "slope" & loc == "jefferson") %>%
+  ggplot(aes(x = ns, y = values)) +
+  geom_boxplot() +
+  facet_wrap(~ res) +
+  xlab("neighborhood size (meters)") +
+  ylab("slope gradient (%)") + ylim(0, 20) + labs(caption = "y-axis max set at 20") +
+  ggtitle("Jefferson")
+
+# cupro boxplots
+filter(lidar, var == "cupro" & loc == "gilmer") %>%
+  ggplot(aes(x = ns, y = values)) +
+  geom_boxplot() +
+  facet_wrap(~ res) +
+  xlab("neighborhood size (meters)") +
+  ylab("profile curvature (radians)") + ylim(-20, 20) + labs(caption = "y-axis min and max set at 20") +
+  ggtitle("Gilmer")
+
+filter(lidar, var == "cupro" & loc == "jefferson") %>%
+  ggplot(aes(x = ns, y = values)) +
+  geom_boxplot() +
+  facet_wrap(~ res) +
+  xlab("neighborhood size (meters)") +
+  ylab("profile curvature (radians)") + ylim(-20, 20) + labs(caption = "y-axis min and max set at 20") +
+  ggtitle("Jefferson")
+
+
+# cutan boxplots
+filter(lidar, var == "cupro" & loc == "gilmer") %>%
+  ggplot(aes(x = ns, y = values)) +
+  geom_boxplot() +
+  facet_wrap(~ res) +
+  xlab("neighborhood size (meters)") +
+  ylab("tangential curvature (radians)") + ylim(-20, 20) + labs(caption = "y-axis min and max set at 20") +
+  ggtitle("Gilmer")
+
+filter(lidar, var == "cutan" & loc == "jefferson") %>%
+  ggplot(aes(x = ns, y = values)) +
+  geom_boxplot() +
+  facet_wrap(~ res) +
+  xlab("neighborhood size (meters)") +
+  ylab("tanngential curvature (radians)") + ylim(-20, 20) + labs(caption = "y-axis min and max set at 20") +
+  ggtitle("Jefferson")
+
+```
+
+
+# Compute Comparisons
+
+```{r comparsions}
+load(file = "D:/geodata/project_data/thesis_wvu/lidar.RData")
+
+lidar <- within(lidar, {
+  values = ifelse(var == "aspect",  abs(180 - values), values)
+  var    = ifelse(var == "aspect", "northness", var)
+  ind    = paste(loc, var, res, ns, sep = "_")
+  ns     = as.character(ns)
+  })
+
+
+vars <- c("loc", "var", "res")
+lidar_dif <- {
+  split(lidar, lidar[vars]) ->.;
+  lapply(., function(x) {
+    us = data.frame(unstack(x, values ~ ns))
+    names(us) = sub("X", "", names(us))
+    idx <- !is.na(as.numeric(names(us)))
+    na = sort(as.numeric(names(us)[idx]))
+    us = us[as.character(na)]
+
+    x2 = data.frame(
+      x[1, vars],
+      us,
+      check.names      = FALSE,
+      stringsAsFactors = FALSE
+      )
+    
+    idx = which(!is.na(as.numeric(names(x2))))
+    x3 = data.frame(
+      x[1, vars],
+      md   = round(     colMeans( x2[, idx[1]] - x2[idx]   , na.rm = TRUE), 3),
+      rmsd = round(sqrt(colMeans((x2[, idx[1]] - x2[idx])^2, na.rm = TRUE)), 3)
+      )
+  }) ->.;
+  do.call("rbind", .)
+  }
+
+```
+

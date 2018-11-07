@@ -1,0 +1,179 @@
+---
+title: "geodata"
+author: "Stephen Roecker"
+date: "November 5, 2018"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r download}
+library(gdalUtils)
+library(RSAGA)
+library(sf)
+
+gdal_setInstallation(search_path="C:/Program Files/QGIS 3.2/bin")
+myenv <- rsaga.env(path = "C:/Program Files/QGIS 3.2/apps/saga-ltr")
+
+source("C:/workspace2/github/geo-pit/trunk/R-geoprocessing/nedFunctions.R")
+source("C:/workspace2/github/geo-pit/trunk/R-geoprocessing/gdalUtilsFunctions.R")
+source("C:/workspace2/github/geo-pit/trunk/R-geoprocessing/rsagaFunctions.R")
+
+fp <- "D:/geodata/project_data/thesis_wvu"
+
+# samb
+samb <- data.frame(
+  url = c(
+    "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/19/IMG/ned19_n38x50_w080x50_wv_statewide_2003.zip",
+    "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/19/IMG/ned19_n38x50_w080x75_wv_statewide_2003.zip",
+    "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/19/IMG/ned19_n38x50_w080x25_wv_statewide_2003.zip",
+    "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/19/IMG/ned19_n38x25_w080x50_wv_statewide_2003.zip",
+    "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/19/IMG/ned19_n38x25_w080x75_wv_statewide_2003.zip",
+    "https://prd-tnm.s3.amazonaws.com/StagedProducts/Elevation/19/IMG/ned19_n38x25_w080x25_wv_statewide_2003.zip"
+    ),
+  stringsAsFactors = FALSE
+  )
+samb <- within(samb, {
+  zip = sapply(url, function(x) unlist(strsplit(x, "\\/"))[8])
+  img = sub("zip", "img", zip)
+  })
+
+# download files
+split(samb, samb$url) ->.;
+lapply(., function(x) {
+  cat("getting", x$url, "\n")
+  download.file(x$url, file.path(fp, x$zip))
+})
+
+# unzip files
+lapply(samb$zip, function(x) {
+  img = sub("zip", "img", x)
+  cat("unzipping", img, "\n")
+  unzip(zipfile = file.path(fp, x), files = img, exdir = fp)
+  })
+
+
+# mosaic
+input  <- file.path("M:/geodata/project_data/thesis_wvu/upper_gauley", samb$img)
+output <- "M:/geodata/project_data/thesis_wvu/upper_gauley/samb19m_ug.tif"
+
+mosaic(input, output, "Float32", c("BIGTIFF=YES"), -99999)
+
+
+# reproject
+input  <- "D:/geodata/project_data/thesis_wvu/upper_gauley/samb19d_ug.tif"
+output <- "D:/geodata/project_data/thesis_wvu/upper_gauley/samb03m_ug.tif"
+
+gdalwarp(
+  srcfile   = input,
+  dstfile   = output,
+  s_srs     = "+init=epsg:4269",
+  t_srs     = "+init=epsg:26917",
+  r         = "bilinear",
+  tr        = c(3, 3),
+  of        = "GTiff",
+  ot        = "Float32",
+  co        = c("BIGTIFF=YES"),
+  dstnodata = -99999,
+  overwrite = TRUE,
+  verbose   = TRUE
+  )
+gdaladdo(
+  filename = output,
+  r        = "nearest",
+  levels   = c(2, 4, 8, 16),
+  clean    = TRUE,
+  ro       = TRUE
+  )
+gdalinfo(
+  datasetname = output,
+  stats       = TRUE
+  )
+
+
+# hillshade
+input  <- "D:/geodata/project_data/thesis_wvu/upper_gauley/samb03m_ug.tif"
+dem(input, c("TILED=YES", "COMPRESS=DEFLATE", "BIGTIFF=YES"))
+
+
+# resample
+input  <- "D:/geodata/project_data/thesis_wvu/upper_gauley/samb03m_ug.tif"
+res <- c("06", "09", "15", "27", "45", "81")
+
+lapply(res, function(x) {
+  resample(input, sub("03m", paste0(x, "m"), input), as.numeric(x))
+  })
+dem(sub("03m", "09m", input), c("TILED=YES", "COMPRESS=DEFLATE", "BIGTIFF=YES"))
+
+
+
+# terrain analysis
+# construct data frame of geodata
+ug09 <- {
+  expand.grid(source = "samb",
+              res    = "09m",
+              ws     = c(3, 5, 7, 9, 15, 21, 27),
+              var    = c("", "slopeR", "slope", "slopeD", "aspect", "cupro", "cucon", "cutan", "cumax", "cumin", "slp", "slpslp"),
+              loc = "ug",
+              format  = "tif",
+              stringsAsFactors = FALSE
+              ) ->.;
+  # build file paths
+  within(., {
+    radius = (ws - 1) / 2
+    tif = file.path("D:/geodata/project_data/thesis_wvu",
+                   "upper_gauley",
+                   paste0(source, res, "_", loc, 
+                          ifelse(var != "", 
+                                 paste0("_", var, ws, "w"), 
+                                 ""
+                                 ),
+                          ".tif")
+                    )
+    sdat = file.path("D:/geodata/project_data/thesis_wvu",
+                   "upper_gauley/sdat",
+                   paste0(source, res, "_", loc, 
+                          ifelse(var != "", 
+                                 paste0("_", var, ws, "w"), 
+                                 ""
+                                 ),
+                          ".sdat")
+                    )
+    var = ifelse(var == "", "elev", var)
+    }) ->.;
+  }
+ug09$sgrd <- sub("sdat$", "sgrd", ug09$sdat)
+ug09$var_ws <- paste0(ug09$var, "_", ug09$ws)
+
+
+# convert the data frame to wide format
+ug09_w <- reshape(ug09,
+       direction = "wide",
+       idvar = "ws",
+       timevar = "var",
+       v.names = c("tif", "sdat", "sgrd")
+       )
+
+# convert tif to sdat
+gdal_tif2sdat(ug09_w$tif.elev[1], ug09_w$sdat.elev[1])
+
+
+# compute slope and curvature with varying window sizes
+elev <- subset(ug09, var == "elev" & ws == 3)$sgrd
+
+split(ug09_w, ug09_w$ws) ->.;
+lapply(., function(x) {
+  rsaga.d1(elev, x$sgrd.slopeD, x$sgrd.aspect, x$radius)
+  rsaga.d2(elev, x$sgrd.cupro,  x$sgrd.cucon,  x$radius)
+  
+  # Convert radians to percent, degrees = radians*180/pi, 180/pi = 57.29578 
+  rsaga.grid.calculus(x$sgrd.slopeD, x$sgrd.slopeD, x$sgrd.slope, "tan(a  *(1 / 57.29578)) * 100")
+  
+  # Rescale curvatures so they can be exported as UInt16 to save file size
+  rsaga.grid.calculus(x$sgrd.cupro, x$sgrd.cupro,  x$sgrd.cupro,  "10000 * a")
+  rsaga.grid.calculus(x$sgrd.cucon, x$sgrd.cucon,  x$sgrd.cucon, "-10000 * a")
+  rsaga.grid.calculus(x$sgrd.cucon, x$sgrd.slopeD, x$sgrd.cutan, "a * sin(b / 57.29578)")
+  })
+
+```
+
