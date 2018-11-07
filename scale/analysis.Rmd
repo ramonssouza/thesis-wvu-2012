@@ -1,22 +1,33 @@
 ---
-title: "geodata"
+title: "Chapter 2 - Scale effects on land surface geometry and environmental correlation"
 author: "Stephen Roecker"
 date: "November 5, 2018"
-output: html_document
+output: 
+  html_document: 
+    number_sections: yes
+    toc: yes
+    toc_float:
+      collapsed: yes
+      smooth_scroll: no
 editor_options: 
   chunk_output_type: console
 ---
 
+```{r options}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE)
+```
 
 ```{r packages}
 library(ggplot2)
 library(dplyr)
 ```
 
-# Tidy Old Data
+# Case Study 1: Systematic effects of varying grid and neighorhood size on LSP
 
-```{r munge}
-load("D:/geodata/project_data/thesis_wvu/mustang_RdataAnalysis_lidar.RData")
+## Tidy Old Data
+
+```{r munge, eval = FALSE}
+load(file = "C:/workspace2/github/thesis-wvu/trunk/scale/lidar_data.RData")
 
 lidar <- rbind(
   # Gilmer
@@ -31,7 +42,7 @@ lidar <- rbind(
   stack(jef27m.df)
   )
 lidar <- within(lidar, {
-  loc = ifelse(grepl("gil", ind), "gilmer", "jefferson")
+  loc = ifelse(grepl("gil", ind), "Gilmer", "Jefferson")
   
   res = NA
   res[grepl("01m", ind)] = 1
@@ -63,18 +74,19 @@ lidar <- within(lidar, {
 
 lidar <- lidar[c("loc", "res", "ns", "ws", "var", "values")]
 
-save(lidar, gil27m_nodes.sp, jef27m_nodes.sp, file = "D:/geodata/project_data/thesis_wvu/lidar.RData")
+save(lidar, file = "lidar_data2.RData")
 
 ```
 
 
-# Create Boxplots
+## Create Boxplots
 
 ```{r boxplots}
-load(file = "D:/geodata/project_data/thesis_wvu/lidar.RData")
+
+load(file = "lidar_data2.RData")
 
 # slope boxplots
-filter(lidar, var == "slope" & loc == "gilmer") %>%
+filter(lidar, var == "slope" & loc == "Gilmer") %>%
 ggplot(aes(x = ns, y = values)) +
   geom_boxplot() +
   facet_wrap(~ res) +
@@ -82,7 +94,7 @@ ggplot(aes(x = ns, y = values)) +
   ylab("slope gradient (%)") + ylim(0, 100) + labs(caption = "y-axis max set at 100") +
   ggtitle("Gilmer")
 
-filter(lidar, var == "slope" & loc == "jefferson") %>%
+filter(lidar, var == "slope" & loc == "Jefferson") %>%
   ggplot(aes(x = ns, y = values)) +
   geom_boxplot() +
   facet_wrap(~ res) +
@@ -91,7 +103,7 @@ filter(lidar, var == "slope" & loc == "jefferson") %>%
   ggtitle("Jefferson")
 
 # cupro boxplots
-filter(lidar, var == "cupro" & loc == "gilmer") %>%
+filter(lidar, var == "cupro" & loc == "Gilmer") %>%
   ggplot(aes(x = ns, y = values)) +
   geom_boxplot() +
   facet_wrap(~ res) +
@@ -99,7 +111,7 @@ filter(lidar, var == "cupro" & loc == "gilmer") %>%
   ylab("profile curvature (radians)") + ylim(-20, 20) + labs(caption = "y-axis min and max set at 20") +
   ggtitle("Gilmer")
 
-filter(lidar, var == "cupro" & loc == "jefferson") %>%
+filter(lidar, var == "cupro" & loc == "Jefferson") %>%
   ggplot(aes(x = ns, y = values)) +
   geom_boxplot() +
   facet_wrap(~ res) +
@@ -109,7 +121,7 @@ filter(lidar, var == "cupro" & loc == "jefferson") %>%
 
 
 # cutan boxplots
-filter(lidar, var == "cupro" & loc == "gilmer") %>%
+filter(lidar, var == "cupro" & loc == "Gilmer") %>%
   ggplot(aes(x = ns, y = values)) +
   geom_boxplot() +
   facet_wrap(~ res) +
@@ -117,7 +129,7 @@ filter(lidar, var == "cupro" & loc == "gilmer") %>%
   ylab("tangential curvature (radians)") + ylim(-20, 20) + labs(caption = "y-axis min and max set at 20") +
   ggtitle("Gilmer")
 
-filter(lidar, var == "cutan" & loc == "jefferson") %>%
+filter(lidar, var == "cutan" & loc == "Jefferson") %>%
   ggplot(aes(x = ns, y = values)) +
   geom_boxplot() +
   facet_wrap(~ res) +
@@ -128,10 +140,11 @@ filter(lidar, var == "cutan" & loc == "jefferson") %>%
 ```
 
 
-# Compute Comparisons
+## Compute LiDAR Comparisons
 
 ```{r comparsions}
-load(file = "D:/geodata/project_data/thesis_wvu/lidar.RData")
+
+load(file = "lidar_data2.RData")
 
 lidar <- within(lidar, {
   values = ifelse(var == "aspect",  abs(180 - values), values)
@@ -161,12 +174,86 @@ lidar_dif <- {
     idx = which(!is.na(as.numeric(names(x2))))
     x3 = data.frame(
       x[1, vars],
-      md   = round(     colMeans( x2[, idx[1]] - x2[idx]   , na.rm = TRUE), 3),
-      rmsd = round(sqrt(colMeans((x2[, idx[1]] - x2[idx])^2, na.rm = TRUE)), 3)
+      ns   = as.numeric(names(x2)[idx]),
+      MD   = round(     colMeans( x2[, idx[1]] - x2[idx],    na.rm = TRUE), 3),
+      RMSD = round(sqrt(colMeans((x2[, idx[1]] - x2[idx])^2, na.rm = TRUE)), 3),
+      r    = round(           cor(x2[idx[1]],  x2[idx],      use = "pairwise.complete.obs"), 3)[1, ]
       )
   }) ->.;
   do.call("rbind", .)
   }
 
+vars <- c("MD","RMSD", "r")
+lidar_lo <- reshape(lidar_dif, 
+                    direction = "long",
+                    timevar = "variable", times = vars,
+                    v.names = "value",    varying = vars
+                    )
 ```
 
+
+## Create Line Plots
+
+```{r lines}
+
+# slope Gradient
+filter(lidar_lo, var == "slope" & variable %in% c("MD", "RMSD")) %>%
+  ggplot(aes(x = ns, y = value, col = res)) +
+  geom_line(lwd = 1) +
+  geom_point(size = 2) +
+  facet_wrap(~ variable + loc) +
+  scale_color_discrete(name="grid size\n(meters)") +
+  xlab("neighborhood size (meters)") +
+  ylab("difference (%)") + 
+  ggtitle("Differences")
+
+# northness difference
+filter(lidar_lo, var == "northness" & variable %in% c("MD", "RMSD")) %>%
+  ggplot(aes(x = ns, y = value, col = res)) +
+  geom_line(lwd = 1) +
+  geom_point(size = 2) +
+  facet_wrap(~ variable + loc) +
+  scale_color_discrete(name="grid size\n(meters)") +
+  xlab("neighborhood size (meters)") +
+  ylab("differenct (degrees)") + 
+  ggtitle("Northness")
+
+# cupro difference
+filter(lidar_lo, var == "cupro" & variable %in% c("MD", "RMSD")) %>%
+  ggplot(aes(x = ns, y = value, col = res)) +
+  geom_line(lwd = 1) +
+  geom_point(size = 2) +
+  facet_wrap(~ variable + loc) +
+  scale_color_discrete(name="grid size\n(meters)") +
+  xlab("neighborhood size (meters)") +
+  ylab("difference (radians)") + 
+  ggtitle("Profile Curvature")
+
+# cutan difference
+filter(lidar_lo, var == "cutan" & variable %in% c("MD", "RMSD")) %>%
+  ggplot(aes(x = ns, y = value, col = res)) +
+  geom_line(lwd = 1) +
+  geom_point(size = 2) +
+  facet_wrap(~ variable + loc) +
+  scale_color_discrete(name="grid size\n(meters)") +
+  xlab("neighborhood size (meters)") +
+  ylab("difference (radians)") + 
+  ggtitle("Tangential Curvature")
+
+```
+
+```{r correlations, fig.width=8, fig.height=10}
+
+# correlations
+filter(lidar_lo, variable %in% "r") %>%
+  ggplot(aes(x = ns, y = value, col = res)) +
+  geom_line(lwd = 1) +
+  geom_point(size = 2) +
+  facet_wrap(~ var + loc, ncol = 2) +
+  theme(aspect.ratio = 1/2) +
+  scale_color_discrete(name="grid size\n(meters)") +
+  xlab("neighborhood size (meters)") +
+  ylab("correlation coefficient (r)") + ylim(0, 1) + 
+  ggtitle("Correlations")
+
+```
