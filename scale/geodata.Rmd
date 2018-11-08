@@ -7,7 +7,11 @@ editor_options:
   chunk_output_type: console
 ---
 
-```{r download}
+```{r options, echo=FALSE}
+knitr::opts_chunk$set(message = FALSE, warning = FALSE)
+```
+
+```{r packages}
 library(gdalUtils)
 library(RSAGA)
 library(sf)
@@ -19,7 +23,11 @@ source("C:/workspace2/github/geo-pit/trunk/R-geoprocessing/nedFunctions.R")
 source("C:/workspace2/github/geo-pit/trunk/R-geoprocessing/gdalUtilsFunctions.R")
 source("C:/workspace2/github/geo-pit/trunk/R-geoprocessing/rsagaFunctions.R")
 
-fp <- "D:/geodata/project_data/thesis_wvu"
+```
+
+```{r download, eval=FALSE}
+
+fp <- "M:/geodata/project_data/thesis_wvu"
 
 # samb
 samb <- data.frame(
@@ -52,68 +60,121 @@ lapply(samb$zip, function(x) {
   unzip(zipfile = file.path(fp, x), files = img, exdir = fp)
   })
 
+```
 
+```{r mosaic}
 # mosaic
 input  <- file.path("M:/geodata/project_data/thesis_wvu/upper_gauley", samb$img)
 output <- "M:/geodata/project_data/thesis_wvu/upper_gauley/samb19m_ug.tif"
 
 mosaic(input, output, "Float32", c("BIGTIFF=YES"), -99999)
+```
 
+```{r resample}
 
-# reproject
-input  <- "D:/geodata/project_data/thesis_wvu/upper_gauley/samb19d_ug.tif"
-output <- "D:/geodata/project_data/thesis_wvu/upper_gauley/samb03m_ug.tif"
-
-gdalwarp(
-  srcfile   = input,
-  dstfile   = output,
-  s_srs     = "+init=epsg:4269",
-  t_srs     = "+init=epsg:26917",
-  r         = "bilinear",
-  tr        = c(3, 3),
-  of        = "GTiff",
-  ot        = "Float32",
-  co        = c("BIGTIFF=YES"),
-  dstnodata = -99999,
-  overwrite = TRUE,
-  verbose   = TRUE
-  )
-gdaladdo(
-  filename = output,
-  r        = "nearest",
-  levels   = c(2, 4, 8, 16),
-  clean    = TRUE,
-  ro       = TRUE
-  )
-gdalinfo(
-  datasetname = output,
-  stats       = TRUE
-  )
-
-
-# hillshade
-input  <- "D:/geodata/project_data/thesis_wvu/upper_gauley/samb03m_ug.tif"
-dem(input, c("TILED=YES", "COMPRESS=DEFLATE", "BIGTIFF=YES"))
-
+# to avoid stripping in the samb dem its necessary to resample prior to reprojecting
+resample <- function(input, output, res){
+  
+  cat(format(Sys.time(), "%Y-%m-%d %H:%M:%S"),"warping", input, "\n")
+  
+  test = raster::raster(input)
+  res = raster::res(test) * (as.numeric(res) / 3)
+  
+  gdalwarp(
+    srcfile = input,
+    dstfile = output,
+    r  = "average",
+    tr = res,
+    of = "GTiff",
+    ot = "Float32",
+    dstnodata = -99999,
+    overwrite = TRUE,
+    verbose   = TRUE
+    )
+  }
 
 # resample
-input  <- "D:/geodata/project_data/thesis_wvu/upper_gauley/samb03m_ug.tif"
-res <- c("06", "09", "15", "27", "45", "81")
+input <- "M:/geodata/project_data/thesis_wvu/upper_gauley/samb19d_ug.tif"
+res   <- c("06", "09", "15", "27", "45", "81")
 
 lapply(res, function(x) {
-  resample(input, sub("03m", paste0(x, "m"), input), as.numeric(x))
+  resample(input, sub("19d", paste0(x, "d"), input), as.numeric(x))
   })
-dem(sub("03m", "09m", input), c("TILED=YES", "COMPRESS=DEFLATE", "BIGTIFF=YES"))
+
+```
+
+```{r reproject}
+
+# reproject
+reproject <- function(input, output, res){
+  
+  cat(format(Sys.time(), "%Y-%m-%d %H:%M:%S"),"warping", input, "\n")
+  
+  gdalwarp(
+    srcfile   = input,
+    dstfile   = output,
+    s_srs     = "+init=epsg:4269",
+    t_srs     = "+init=epsg:26917",
+    # using bucubic, bilinear seems to be generating a stripping pattern, even though Frank Warmerdam recommends bilinear for DEMs (http://courses.neteler.org/gdal-raster-data-tips-and-tricks/)
+    r         = "cubic",            
+    tr        = c(res, res),
+    of        = "GTiff",
+    ot        = "Float32",
+    co        = c("BIGTIFF=YES"),
+    dstnodata = -99999,
+    overwrite = TRUE,
+    verbose   = TRUE
+    )
+  }
+
+# resample
+res1 <- c("19", "06", "09", "15", "27", "45", "81")
+res2 <- c("03", "06", "09", "15", "27", "45", "81")
+test <- data.frame(
+  input  = paste0("M:/geodata/project_data/thesis_wvu/upper_gauley/samb", res1, "d_ug.tif"),
+  output = paste0("M:/geodata/project_data/thesis_wvu/upper_gauley/samb", res2, "m_ug.tif"),
+  res    = res2,
+  stringsAsFactors = FALSE
+  )
+
+split(test, test$res) ->.;
+lapply(., function(x) {
+  reproject(x$input, x$output, as.numeric(x$res))
+  })
+
+# hillshade
+input  <- "M:/geodata/project_data/thesis_wvu/upper_gauley/samb03m_ug.tif"
+dem(input, c("TILED=YES", "COMPRESS=DEFLATE", "BIGTIFF=YES"))
+
+input  <- "M:/geodata/project_data/thesis_wvu/upper_gauley/samb09m_ug.tif"
+dem(input, c("TILED=YES", "COMPRESS=DEFLATE", "BIGTIFF=YES"))
+
+```
 
 
+```{r data frame}
+# construct comparison matrix
+ns<- c(9, 18, 24, 27, 45, 63, 81, 135, 189, 243)
+gs <- c(3, 6, 9, 15, 27, 45, 81)
 
-# terrain analysis
+cm <- matrix(ns) %*% (1 / gs)
+colnames(cm) <- gs
+rownames(cm) <- ns
+
+cm[cm != round(cm) & cm / 2 != round(cm / 2)] <- NA
+cm[cm < 3]        <- NA
+cm[cm %% 2 == 0]  <- NA
+cm[upper.tri(cm)] <- NA
+cm_df = data.frame(ns = row.names(cm), cm, check.names = FALSE)
+knitr::kable(cm)
+
+
 # construct data frame of geodata
-ug09 <- {
+geodata <- {
   expand.grid(source = "samb",
-              res    = "09m",
-              ws     = c(3, 5, 7, 9, 15, 21, 27),
-              var    = c("", "slopeR", "slope", "slopeD", "aspect", "cupro", "cucon", "cutan", "cumax", "cumin", "slp", "slpslp"),
+              res    = c("03m", "06m", "09m", "15m", "27m", "45m", "81m"),
+              ws     = as.numeric(names(table(cm))),
+              var    = c("", "slopeR", "slope", "slopeD", "aspect", "cupro", "cucon", "cutan"),
               loc = "ug",
               format  = "tif",
               stringsAsFactors = FALSE
@@ -121,7 +182,7 @@ ug09 <- {
   # build file paths
   within(., {
     radius = (ws - 1) / 2
-    tif = file.path("D:/geodata/project_data/thesis_wvu",
+    tif = file.path("M:/geodata/project_data/thesis_wvu",
                    "upper_gauley",
                    paste0(source, res, "_", loc, 
                           ifelse(var != "", 
@@ -130,7 +191,7 @@ ug09 <- {
                                  ),
                           ".tif")
                     )
-    sdat = file.path("D:/geodata/project_data/thesis_wvu",
+    sdat = file.path("M:/geodata/project_data/thesis_wvu",
                    "upper_gauley/sdat",
                    paste0(source, res, "_", loc, 
                           ifelse(var != "", 
@@ -141,28 +202,65 @@ ug09 <- {
                     )
     var = ifelse(var == "", "elev", var)
     }) ->.;
+  subset(.,
+         (res == "03m" & ws %in% cm_df$'3')  |
+         (res == "06m" & ws %in% cm_df$'6')  |
+         (res == "09m" & ws %in% cm_df$'9')  |
+         (res == "15m" & ws %in% cm_df$'15') |
+         (res == "27m" & ws %in% cm_df$'27') |
+         (res == "45m" & ws %in% cm_df$'45') |
+         (res == "81m" & ws %in% cm_df$'81')
+         )->.;
   }
-ug09$sgrd <- sub("sdat$", "sgrd", ug09$sdat)
-ug09$var_ws <- paste0(ug09$var, "_", ug09$ws)
+geodata$sgrd <- sub("sdat$", "sgrd", geodata$sdat)
 
 
 # convert the data frame to wide format
-ug09_w <- reshape(ug09,
+geodata_w <- reshape(geodata,
        direction = "wide",
-       idvar = "ws",
-       timevar = "var",
-       v.names = c("tif", "sdat", "sgrd")
+       idvar     = c("res", "ws"),
+       timevar   = "var",
+       v.names   = c("tif", "sdat", "sgrd")
        )
+```
 
+```{r convert}
 # convert tif to sdat
-gdal_tif2sdat(ug09_w$tif.elev[1], ug09_w$sdat.elev[1])
 
+# 3-meter DEM
+subset(geodata_w, res == "03m" & ws == 3) ->.;
+gdal_tif2sdat(.$tif.elev, .$sdat.elev)
 
+# 6-meter DEM
+subset(geodata_w, res == "06m" & ws == 3) ->.;
+gdal_tif2sdat(.$tif.elev, .$sdat.elev)
+
+# 9-meter DEM
+subset(geodata_w, res == "09m" & ws == 3) ->.;
+gdal_tif2sdat(.$tif.elev, .$sdat.elev)
+
+# 15-meter DEM
+subset(geodata_w, res == "15m" & ws == 3) ->.;
+gdal_tif2sdat(.$tif.elev, .$sdat.elev)
+
+# 27-meter DEM
+subset(geodata_w, res == "27m" & ws == 3) ->.;
+gdal_tif2sdat(.$tif.elev, .$sdat.elev)
+
+# 45-meter DEM
+subset(geodata_w, res == "45m" & ws == 3) ->.;
+gdal_tif2sdat(.$tif.elev, .$sdat.elev)
+
+# 81-meter DEM
+subset(geodata_w, res == "81m" & ws == 3) ->.;
+gdal_tif2sdat(.$tif.elev, .$sdat.elev)
+
+```
+
+```{r mustang, eval=FALSE}
 # compute slope and curvature with varying window sizes
-elev <- subset(ug09, var == "elev" & ws == 3)$sgrd
 
-split(ug09_w, ug09_w$ws) ->.;
-lapply(., function(x) {
+mustang <- function(x) {
   rsaga.d1(elev, x$sgrd.slopeD, x$sgrd.aspect, x$radius)
   rsaga.d2(elev, x$sgrd.cupro,  x$sgrd.cucon,  x$radius)
   
@@ -173,7 +271,50 @@ lapply(., function(x) {
   rsaga.grid.calculus(x$sgrd.cupro, x$sgrd.cupro,  x$sgrd.cupro,  "10000 * a")
   rsaga.grid.calculus(x$sgrd.cucon, x$sgrd.cucon,  x$sgrd.cucon, "-10000 * a")
   rsaga.grid.calculus(x$sgrd.cucon, x$sgrd.slopeD, x$sgrd.cutan, "a * sin(b / 57.29578)")
-  })
+  }
+
+
+# 3-meter_DEM
+elev <- subset(geodata, res == "03m" & ws == 3 & var == "elev")$sgrd
+subset(geodata_w,       res == "03m" & ws %in% cm_df[2:10, '3']) ->.;
+split(., .$ws) ->.;
+lapply(., mustang)
+
+# 6-meter_DEM
+elev <- subset(geodata, res == "06m" & ws == 3 & var == "elev")$sgrd
+subset(geodata_w,       res == "06m") ->.;
+split(., .$ws) ->.;
+lapply(., mustang)
+
+# 9-meter DEM
+elev <- subset(geodata, res == "09m" & ws == 3 & var == "elev")$sgrd
+subset(geodata_w,       res == "09m") ->.;
+split(., .$ws) ->.;
+lapply(., mustang)
+
+# 15-meter DEM
+elev <- subset(geodata, res == "15m" & ws == 3 & var == "elev")$sgrd
+subset(geodata_w,       res == "15m") ->.;
+split(., .$ws) ->.;
+lapply(., mustang)
+
+# 27-meter DEM
+elev <- subset(geodata, res == "27m" & ws == 3 & var == "elev")$sgrd
+subset(geodata_w,       res == "27m") ->.;
+split(., .$ws) ->.;
+lapply(., mustang)
+
+# 45-meter DEM
+elev <- subset(geodata, res == "45m" & ws == 3 & var == "elev")$sgrd
+subset(geodata_w,       res == "45m") ->.;
+split(., .$ws) ->.;
+lapply(., mustang)
+
+# 81-meter DEM
+elev <- subset(geodata, res == "81m" & ws == 3 & var == "elev")$sgrd
+subset(geodata_w,       res == "81m" & ws == 3) ->.;
+split(., .$ws) ->.;
+lapply(., mustang)
 
 ```
 

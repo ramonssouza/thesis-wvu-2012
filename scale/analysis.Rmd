@@ -22,7 +22,7 @@ library(ggplot2)
 library(dplyr)
 ```
 
-# Case Study 1: Systematic effects of varying grid and neighorhood size on LSP
+# Case Study 1 - Systematic effects of varying grid and neighorhood size on LSP
 
 ## Tidy Old Data
 
@@ -205,7 +205,7 @@ filter(lidar_lo, var == "slope" & variable %in% c("MD", "RMSD")) %>%
   scale_color_discrete(name="grid size\n(meters)") +
   xlab("neighborhood size (meters)") +
   ylab("difference (%)") + 
-  ggtitle("Differences")
+  ggtitle("Slope Gradient")
 
 # northness difference
 filter(lidar_lo, var == "northness" & variable %in% c("MD", "RMSD")) %>%
@@ -257,3 +257,58 @@ filter(lidar_lo, variable %in% "r") %>%
   ggtitle("Correlations")
 
 ```
+
+
+# Case Study 2 - Soil and LSP correlations response to neighborhood size
+
+## Sample Geodata
+
+```{r geodata}
+
+library(raster)
+
+# construct data frame of geodata
+geodata <- {
+  expand.grid(source = "samb",
+              res    = c("03m", "09m", "27m", "81m"),
+              ws     = c(3, 5, 7, 9, 15, 21, 27),
+              var    = c("", "slopeR", "slope", "slopeD", "aspect", "cupro", "cucon", "cutan"),
+              loc = "ug",
+              format  = "tif",
+              stringsAsFactors = FALSE
+              ) ->.;
+  # build file paths
+  within(., {
+    radius = (ws - 1) / 2
+    tif = file.path("M:/geodata/project_data/thesis_wvu",
+                   "upper_gauley",
+                   paste0(source, res, "_", loc, 
+                          ifelse(var != "", 
+                                 paste0("_", var, ws, "w"), 
+                                 ""
+                                 ),
+                          ".tif")
+                    )
+    sdat = file.path("D:/geodata/project_data/thesis_wvu",
+                   "upper_gauley/sdat",
+                   paste0(source, res, "_", loc, 
+                          ifelse(var != "", 
+                                 paste0("_", var, ws, "w"), 
+                                 ""
+                                 ),
+                          ".sdat")
+                    )
+    var = ifelse(var == "", "elev", var)
+    }) ->.;
+  }
+geodata$sgrd <- sub("sdat$", "sgrd", geodata$sdat)
+
+
+
+# stack sdat
+
+geodata_sub <- subset(geodata, res == "09m" & var %in% c("slope", "aspect", "cupro", "cutan"))
+geodata_r <- stack(geodata_sub$sdat)
+
+```
+
