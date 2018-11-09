@@ -144,7 +144,7 @@ filter(lidar, var == "cutan" & loc == "Jefferson") %>%
 
 ```{r comparsions}
 
-load(file = "lidar_data2.RData")
+load(file = "C:/workspace2/github/thesis-wvu/trunk/scale/lidar_data2.RData")
 
 lidar <- within(lidar, {
   values = ifelse(var == "aspect",  abs(180 - values), values)
@@ -160,9 +160,9 @@ lidar_dif <- {
   lapply(., function(x) {
     us = data.frame(unstack(x, values ~ ns))
     names(us) = sub("X", "", names(us))
-    idx <- !is.na(as.numeric(names(us)))
-    na = sort(as.numeric(names(us)[idx]))
-    us = us[as.character(na)]
+    idx = !is.na(as.numeric(names(us)))
+    na  = sort(as.numeric(names(us)[idx]))
+    us  = us[as.character(na)]
 
     x2 = data.frame(
       x[1, vars],
@@ -261,54 +261,203 @@ filter(lidar_lo, variable %in% "r") %>%
 
 # Case Study 2 - Soil and LSP correlations response to neighborhood size
 
-## Sample Geodata
+## Tidy Soil Data
 
-```{r geodata}
+```{r soildata}
 
-library(raster)
+library(aqp)
+library(dplyr)
 
-# construct data frame of geodata
-geodata <- {
-  expand.grid(source = "samb",
-              res    = c("03m", "09m", "27m", "81m"),
-              ws     = c(3, 5, 7, 9, 15, 21, 27),
-              var    = c("", "slopeR", "slope", "slopeD", "aspect", "cupro", "cucon", "cutan"),
-              loc = "ug",
-              format  = "tif",
-              stringsAsFactors = FALSE
-              ) ->.;
-  # build file paths
-  within(., {
-    radius = (ws - 1) / 2
-    tif = file.path("M:/geodata/project_data/thesis_wvu",
-                   "upper_gauley",
-                   paste0(source, res, "_", loc, 
-                          ifelse(var != "", 
-                                 paste0("_", var, ws, "w"), 
-                                 ""
-                                 ),
-                          ".tif")
-                    )
-    sdat = file.path("D:/geodata/project_data/thesis_wvu",
-                   "upper_gauley/sdat",
-                   paste0(source, res, "_", loc, 
-                          ifelse(var != "", 
-                                 paste0("_", var, ws, "w"), 
-                                 ""
-                                 ),
-                          ".sdat")
-                    )
-    var = ifelse(var == "", "elev", var)
-    }) ->.;
-  }
-geodata$sgrd <- sub("sdat$", "sgrd", geodata$sdat)
+fp <- "C:/Users/Stephen.Roecker/NextCloud/projects/thesis_wvu"
 
+s <- read.csv(file.path(fp, "siteAttributes.csv"), stringsAsFactors = FALSE)
+s[1:4] <- lapply(s[1:4], as.numeric)
 
+h <- read.csv(file.path(fp, "horizonAttributes.csv"), stringsAsFactors = FALSE)
+h$CaMg <- with(h, Ca + Mg) 
+spc <- h
+depths(spc) <- upedonid ~ hzdept + hzdepb
 
-# stack sdat
+h_s <- aqp::slice(spc, 0:150 ~ fragvol + clay + sand + C + pH + CaMg, just.the.data = TRUE)
+h_s$dep_int <- cut(h_s$hzdepb,
+                   breaks = c(0, 15, 60, 100, 150), 
+                   labels = c("0-15", "15-60", "60-100", "100-150")
+                   )
 
-geodata_sub <- subset(geodata, res == "09m" & var %in% c("slope", "aspect", "cupro", "cutan"))
-geodata_r <- stack(geodata_sub$sdat)
+h_di <- group_by(h_s, upedonid, dep_int) %>%
+  summarize(fragvol = mean(fragvol, na.rm = TRUE),
+            clay    = mean(clay,    na.rm = TRUE),
+            C       = sum(C),
+            pH      = mean(pH,      na.rm = TRUE),
+            CaMg    = sum(CaMg), 
+            hzthk   = sum(!is.na(.pctMissing))
+            )%>%
+  mutate(fragvol = ifelse(fragvol <= 0.1, 0.1, fragvol),
+          C       = ifelse(C == 0,         NA,  C),
+          CaMg    = ifelse(CaMg == 0,      NA,  CaMg)
+          )
+sh_di <- merge(s, h_di, by = "upedonid", all.x = TRUE)
 
 ```
 
+## Depth Plots
+
+```{r explore}
+
+library(ggplot2)
+library(GGally)
+
+# Depth Plot
+
+h_slab <- slab(spc, ~ fragvol + clay + C + pH + CaMg)
+
+ggplot(h_slab, aes(x = bottom, y = p.q50)) +
+  geom_line() +
+  geom_ribbon(aes(ymin = p.q5,  ymax = p.q95, x = bottom), alpha = 0.2) + 
+  geom_ribbon(aes(ymin = p.q25, ymax = p.q75, x = bottom), alpha = 0.2) + 
+  xlim(150, 0) +
+  facet_wrap(~ variable, scales = "free_x") +
+  coord_flip() +
+  xlab("depth (cm)") +
+  ylab("5th, 25th, Median, 75th, and 95th Quantiles") +
+  ggtitle("Depth Plot of Soil Properties")
+
+
+# Scatter Plot Matrix
+
+h$CaMg_log <- log(h$CaMg + 0.1)
+sh_di$CaMg_log <- log(sh_di$CaMg + 0.1)
+
+vars <- c("fragvol", "clay", "C", "pH", "CaMg_log")
+ggpairs(h[vars])
+ggpairs(sh_di[vars])
+
+```
+
+
+## Sample Geodata and Correlate with Soil Depth Intervals
+
+```{r geodata, eval = FALSE}
+
+library(sp)
+library(sf)
+library(raster)
+
+pts <- sh_di
+coordinates(pts) <- ~ utm_easting + utm_northing
+proj4string(pts) <- CRS("+init=epsg:26917")
+
+pts2 <- st_sf(sh_di, 
+              geometry = st_sfc(st_multipoint(as.matrix(sh_di[3:4]))),
+              crs      = "+init=epsg:26917"
+              )
+
+# stack SAGA rasters
+
+load(file = "C:/workspace2/github/thesis-wvu/trunk/scale/geodata_df.RData")
+
+sg <- {
+  subset(geodata, ! var %in% c("elev", "cucon") & ! grepl("slopeR|slopeD", var) & ! ws %in% c(63, 81)) ->.;
+  split(., .$res) ->.;
+  lapply(., function(x) { 
+    cat("raster stacking and extracting, correlating, stacking, and tidying", x$res[1], "\n")
+    rs = stack(x$sdat)
+    sg = as.data.frame(raster::extract(rs, pts, sp = TRUE))
+    }) ->.;
+  }
+
+sg2 <- {
+  lapply(sg, function(x) {
+    # split by depth interval
+    split(x, x$dep_int) ->.;
+    # compute correlation and convert to long format
+    lapply(., function(x2) {
+      test = stack(data.frame(
+        fragvol = cor(x2$fragvol, x2[16:ncol(x2)], use = "pairwise.complete.obs"),
+        clay    = cor(x2$clay,    x2[16:ncol(x2)], use = "pairwise.complete.obs"),
+        C       = cor(x2$C,       x2[16:ncol(x2)], use = "pairwise.complete.obs"),
+        pH      = cor(x2$pH,      x2[16:ncol(x2)], use = "pairwise.complete.obs"),
+        CaMg    = cor(x2$CaMg,    x2[16:ncol(x2)], use = "pairwise.complete.obs")
+        ))
+      test$ind = as.character(test$ind)
+      test$dep_int = x2$dep_int[1]
+      return(test)
+      }) -> .;
+    do.call("rbind", .) ->test;
+    
+    # split property.filename grouping variable into separate columns
+    test = cbind(
+      test,
+      data.frame(
+        do.call("rbind",
+                strsplit(test$ind, "\\.|_")
+                ),
+        stringsAsFactors = FALSE
+        )
+      )
+    names(test)[4:7] = c("prop", "source", "area", "var")
+    
+    # split source and variable columns into additional columns
+    test = within(test, {
+      res    = substr(source, 5, 8)
+      res    = as.numeric(substr(res, 1, nchar(res) - 1))
+      source = substr(source, 1, 4)
+      ws     = sub("slope|aspect|cupro|cutan", "", var)
+      ws     = as.numeric(substr(ws, 1, nchar(ws) - 1))
+      ns     = ws * res
+      var[grepl("slope",  var)] = "slope"
+      var[grepl("aspect", var)] = "aspect"
+      var[grepl("cupro",  var)] = "cupro"
+      var[grepl("cutan",  var)] = "cutan"
+    })
+
+    }) ->.;
+  do.call("rbind", .) ->.;
+  }
+
+save(sg2, file = "C:/Users/Stephen.Roecker/NextCloud/projects/thesis_wvu/soil_correlations.RData")
+
+```
+
+## Create Line Plots
+
+```{r correlations2, fig.dim = c(8, 10)}
+
+load(file = "C:/Users/Stephen.Roecker/NextCloud/projects/thesis_wvu/soil_correlations.RData")
+
+# 3-meter DEM and Increasing Window Sizes
+filter(sg2, res == 3) %>%
+  ggplot(aes(x = ns, y = values, col = var)) +
+  geom_line(lwd = 1) +
+  geom_hline(yintercept = 0) +
+  geom_point(size = 2) +
+  facet_wrap(~ prop + dep_int, ncol = 4) +
+  theme(aspect.ratio = 1) +
+  xlab("neighborhood size (meters)") +
+  ylab("correlation coefficient (r)") +
+  ggtitle("3-meter DEM")
+
+# 9-meter DEM and Increasing Window Sizes
+filter(sg2, res == 9) %>%
+  ggplot(aes(x = ns, y = values, col = var)) +
+  geom_line(lwd = 1) +
+  geom_hline(yintercept = 0) +
+  geom_point(size = 2) +
+  facet_wrap(~ prop + dep_int, ncol = 4) +
+  theme(aspect.ratio = 1) +
+  xlab("neighborhood size (meters)") +
+  ylab("correlation coefficient (r)") +
+  ggtitle("9-meter DEM")
+
+# All DEMs and 3x3 Window Size
+filter(sg2, ws == 3) %>%
+  ggplot(aes(x = res, y = values, col = var)) +
+  geom_line(lwd = 1) +
+  geom_hline(yintercept = 0) +
+  geom_point(size = 2) +
+  facet_wrap(~ prop + dep_int, ncol = 4) +
+  theme(aspect.ratio = 1) +
+  xlab("neighborhood size (meters)") +
+  ylab("correlation coefficient (r)") +
+  ggtitle("All DEMs and 3x3 Window Size")
+```

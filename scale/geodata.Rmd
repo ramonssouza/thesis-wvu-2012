@@ -1,14 +1,20 @@
 ---
-title: "geodata"
+title: "Preparation of Geodata"
 author: "Stephen Roecker"
 date: "November 5, 2018"
-output: html_document
+output: 
+  html_document: 
+    number_sections: yes
+    toc: yes
+    toc_float:
+      collapsed: yes
+      smooth_scroll: no
 editor_options: 
   chunk_output_type: console
 ---
 
 ```{r options, echo=FALSE}
-knitr::opts_chunk$set(message = FALSE, warning = FALSE)
+knitr::opts_chunk$set(message = FALSE, warning = FALSE, eval=FALSE)
 ```
 
 ```{r packages}
@@ -25,9 +31,17 @@ source("C:/workspace2/github/geo-pit/trunk/R-geoprocessing/rsagaFunctions.R")
 
 ```
 
+# Download DEMs
+
 ```{r download, eval=FALSE}
 
 fp <- "M:/geodata/project_data/thesis_wvu"
+
+
+# lidar
+# Jefferson County - Sheppardstown Quad
+nrcs_gw_box_url <- "https://nrcs.app.box.com/v/elevation/folder/37792511356"
+
 
 # samb
 samb <- data.frame(
@@ -62,6 +76,9 @@ lapply(samb$zip, function(x) {
 
 ```
 
+
+# Mosaic SAMB
+
 ```{r mosaic}
 # mosaic
 input  <- file.path("M:/geodata/project_data/thesis_wvu/upper_gauley", samb$img)
@@ -69,6 +86,9 @@ output <- "M:/geodata/project_data/thesis_wvu/upper_gauley/samb19m_ug.tif"
 
 mosaic(input, output, "Float32", c("BIGTIFF=YES"), -99999)
 ```
+
+
+# Resample SAMB
 
 ```{r resample}
 
@@ -102,6 +122,9 @@ lapply(res, function(x) {
   })
 
 ```
+
+
+# Reproject SAMB
 
 ```{r reproject}
 
@@ -151,6 +174,7 @@ dem(input, c("TILED=YES", "COMPRESS=DEFLATE", "BIGTIFF=YES"))
 
 ```
 
+# Create List of Variables
 
 ```{r data frame}
 # construct comparison matrix
@@ -222,7 +246,13 @@ geodata_w <- reshape(geodata,
        timevar   = "var",
        v.names   = c("tif", "sdat", "sgrd")
        )
+
+save(geodata, geodata_w, cm_df, file = "C:/workspace2/github/thesis-wvu/trunk/scale/geodata_df.RData")
+
 ```
+
+
+# Convert GeoTIFFs to SAGA format
 
 ```{r convert}
 # convert tif to sdat
@@ -256,6 +286,9 @@ subset(geodata_w, res == "81m" & ws == 3) ->.;
 gdal_tif2sdat(.$tif.elev, .$sdat.elev)
 
 ```
+
+
+# Compute Multiscale Geometric LSPs
 
 ```{r mustang, eval=FALSE}
 # compute slope and curvature with varying window sizes
