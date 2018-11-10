@@ -35,7 +35,7 @@ source("C:/workspace2/github/geo-pit/trunk/R-geoprocessing/rsagaFunctions.R")
 
 ```{r download, eval=FALSE}
 
-fp <- "M:/geodata/project_data/thesis_wvu"
+fp <- "D:/geodata/project_data/thesis_wvu"
 
 
 # lidar
@@ -81,8 +81,8 @@ lapply(samb$zip, function(x) {
 
 ```{r mosaic}
 # mosaic
-input  <- file.path("M:/geodata/project_data/thesis_wvu/upper_gauley", samb$img)
-output <- "M:/geodata/project_data/thesis_wvu/upper_gauley/samb19m_ug.tif"
+input  <- file.path("D:/geodata/project_data/thesis_wvu/upper_gauley", samb$img)
+output <- "D:/geodata/project_data/thesis_wvu/upper_gauley/samb19m_ug.tif"
 
 mosaic(input, output, "Float32", c("BIGTIFF=YES"), -99999)
 ```
@@ -114,7 +114,7 @@ resample <- function(input, output, res){
   }
 
 # resample
-input <- "M:/geodata/project_data/thesis_wvu/upper_gauley/samb19d_ug.tif"
+input <- "D:/geodata/project_data/thesis_wvu/upper_gauley/samb19d_ug.tif"
 res   <- c("06", "09", "15", "27", "45", "81")
 
 lapply(res, function(x) {
@@ -139,7 +139,7 @@ reproject <- function(input, output, res){
     s_srs     = "+init=epsg:4269",
     t_srs     = "+init=epsg:26917",
     # using bucubic, bilinear seems to be generating a stripping pattern, even though Frank Warmerdam recommends bilinear for DEMs (http://courses.neteler.org/gdal-raster-data-tips-and-tricks/)
-    r         = "cubic",            
+    r         = "bilinear",            
     tr        = c(res, res),
     of        = "GTiff",
     ot        = "Float32",
@@ -154,8 +154,8 @@ reproject <- function(input, output, res){
 res1 <- c("19", "06", "09", "15", "27", "45", "81")
 res2 <- c("03", "06", "09", "15", "27", "45", "81")
 test <- data.frame(
-  input  = paste0("M:/geodata/project_data/thesis_wvu/upper_gauley/samb", res1, "d_ug.tif"),
-  output = paste0("M:/geodata/project_data/thesis_wvu/upper_gauley/samb", res2, "m_ug.tif"),
+  input  = paste0("D:/geodata/project_data/thesis_wvu/upper_gauley/samb", res1, "d_ug.tif"),
+  output = paste0("D:/geodata/project_data/thesis_wvu/upper_gauley/samb", res2, "m_ug.tif"),
   res    = res2,
   stringsAsFactors = FALSE
   )
@@ -166,10 +166,10 @@ lapply(., function(x) {
   })
 
 # hillshade
-input  <- "M:/geodata/project_data/thesis_wvu/upper_gauley/samb03m_ug.tif"
+input  <- "D:/geodata/project_data/thesis_wvu/upper_gauley/samb03m_ug.tif"
 dem(input, c("TILED=YES", "COMPRESS=DEFLATE", "BIGTIFF=YES"))
 
-input  <- "M:/geodata/project_data/thesis_wvu/upper_gauley/samb09m_ug.tif"
+input  <- "D:/geodata/project_data/thesis_wvu/upper_gauley/samb09m_ug.tif"
 dem(input, c("TILED=YES", "COMPRESS=DEFLATE", "BIGTIFF=YES"))
 
 ```
@@ -206,7 +206,7 @@ geodata <- {
   # build file paths
   within(., {
     radius = (ws - 1) / 2
-    tif = file.path("M:/geodata/project_data/thesis_wvu",
+    tif = file.path("D:/geodata/project_data/thesis_wvu",
                    "upper_gauley",
                    paste0(source, res, "_", loc, 
                           ifelse(var != "", 
@@ -215,7 +215,7 @@ geodata <- {
                                  ),
                           ".tif")
                     )
-    sdat = file.path("M:/geodata/project_data/thesis_wvu",
+    sdat = file.path("D:/geodata/project_data/thesis_wvu",
                    "upper_gauley/sdat",
                    paste0(source, res, "_", loc, 
                           ifelse(var != "", 
@@ -247,7 +247,7 @@ geodata_w <- reshape(geodata,
        v.names   = c("tif", "sdat", "sgrd")
        )
 
-save(geodata, geodata_w, cm_df, file = "C:/workspace2/github/thesis-wvu/trunk/scale/geodata_df.RData")
+save(geodata, geodata_w, cm_df, file = "C:/workspace2/github/thesis_wvu/trunk/scale/geodata_df.RData")
 
 ```
 
@@ -309,7 +309,7 @@ mustang <- function(x) {
 
 # 3-meter_DEM
 elev <- subset(geodata, res == "03m" & ws == 3 & var == "elev")$sgrd
-subset(geodata_w,       res == "03m" & ws %in% cm_df[2:10, '3']) ->.;
+subset(geodata_w,       res == "03m" & ws %in% cm_df[c(7:8), '3']) ->.;
 split(., .$ws) ->.;
 lapply(., mustang)
 
