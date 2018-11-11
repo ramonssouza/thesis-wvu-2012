@@ -363,6 +363,12 @@ sg <- {
     cat("raster stacking and extracting, correlating, stacking, and tidying", x$res[1], "\n")
     rs = stack(x$sdat)
     sg = as.data.frame(raster::extract(rs, pts, sp = TRUE))
+    
+    # compute northness
+    idx      = grepl("aspect", names(sg))
+    sg[idx]  = lapply(sg[idx], function(x) abs(180 - x))
+    
+    return(sg)
     }) ->.;
   }
 
@@ -372,15 +378,34 @@ sg2 <- {
     split(x, x$dep_int) ->.;
     # compute correlation and convert to long format
     lapply(., function(x2) {
-      test = stack(data.frame(
-        fragvol = cor(x2$fragvol, x2[16:ncol(x2)], use = "pairwise.complete.obs"),
-        clay    = cor(x2$clay,    x2[16:ncol(x2)], use = "pairwise.complete.obs"),
-        C       = cor(x2$C,       x2[16:ncol(x2)], use = "pairwise.complete.obs"),
-        pH      = cor(x2$pH,      x2[16:ncol(x2)], use = "pairwise.complete.obs"),
-        CaMg    = cor(x2$CaMg,    x2[16:ncol(x2)], use = "pairwise.complete.obs")
-        ))
-      test$ind = as.character(test$ind)
+      
+      fragvol = data.frame(hzthk = x2$hzthk, fragvol = log(x2$fragvol + 0.1), x2[16:ncol(x2)])
+      clay    = data.frame(hzthk = x2$hzthk, clay    = x2$clay,               x2[16:ncol(x2)])
+      C       = data.frame(hzthk = x2$hzthk, C       = x2$C,                  x2[16:ncol(x2)])
+      pH      = data.frame(hzthk = x2$hzthk, pH      = x2$pH,                 x2[16:ncol(x2)])
+      CaMg    = data.frame(hzthk = x2$hzthk, CaMg    = log(x2$CaMg + 0.1),    x2[16:ncol(x2)])
+      
+      # fragvol
+      idx      = complete.cases(fragvol)
+      frag_cor = cov.wt(x = fragvol[idx, ], wt = fragvol$hzthk[idx], cor = TRUE)$cor[- c(1:2), 2]
+      # clay
+      idx      = complete.cases(clay)
+      clay_cor = cov.wt(x = clay[idx, ],    wt = clay$hzthk[idx],    cor = TRUE)$cor[- c(1:2), 2]
+      # C
+      idx      = complete.cases(C)
+      C_cor    = cov.wt(x = C[idx, ],       wt = C$hzthk[idx],       cor = TRUE)$cor[- c(1:2), 2]
+      # pH
+      idx      = complete.cases(pH)
+      pH_cor   = cov.wt(x = pH[idx, ],      wt = pH$hzthk[idx],      cor = TRUE)$cor[- c(1:2), 2]
+      # CaMg
+      idx      = complete.cases(CaMg)
+      CaMg_cor = cov.wt(x = CaMg[idx, ],    wt = CaMg$hzthk[idx],    cor = TRUE)$cor[- c(1:2), 2]
+      
+      test = data.frame(values = c(fragvol = frag_cor, clay = clay_cor, C = C_cor, pH = pH_cor, CaMg = CaMg_cor))
+      test$ind = row.names(test)
+      # append depth interval
       test$dep_int = x2$dep_int[1]
+      
       return(test)
       }) -> .;
     do.call("rbind", .) ->test;
@@ -405,8 +430,10 @@ sg2 <- {
       ws     = sub("slope|aspect|cupro|cutan", "", var)
       ws     = as.numeric(substr(ws, 1, nchar(ws) - 1))
       ns     = ws * res
+      res    = factor(res, levels = sort(unique(res)))
+      dep_int = factor(paste(dep_int, "cm"), levels = c("0-15 cm", "15-60 cm", "60-100 cm", "100-150 cm"))
       var[grepl("slope",  var)] = "slope"
-      var[grepl("aspect", var)] = "aspect"
+      var[grepl("aspect", var)] = "northness"
       var[grepl("cupro",  var)] = "cupro"
       var[grepl("cutan",  var)] = "cutan"
     })
@@ -419,57 +446,63 @@ save(sg2, file = "C:/Users/Stephen.Roecker/NextCloud/projects/thesis_wvu/soil_co
 
 ```
 
+
 ## Create Line Plots
 
-```{r correlations2, fig.dim = c(8, 10)}
+### All DEM Grid and Neighborhood Size Combinations
+
+```{r all-combinations, fig.dim = c(8, 10)}
 
 load(file = "C:/Users/Stephen.Roecker/NextCloud/projects/thesis_wvu/soil_correlations.RData")
 
-# 3-meter DEM and Increasing Window Sizes
-filter(sg2, res == 3) %>%
-  ggplot(aes(x = ns, y = values, col = var)) +
-  geom_line(lwd = 1) +
+filter(sg2, ! res %in% c("6", "45", "81")) %>%
+  ggplot(aes(x = ns, y = values, col = var, shape = res)) +
+  geom_point(size = 2.5, alpha = 0.5) +
+  geom_line(lwd = 1, alpha = 0.5) +
   geom_hline(yintercept = 0) +
-  geom_point(size = 2) +
-  facet_wrap(~ prop + dep_int, ncol = 4) +
+  facet_grid(prop ~ dep_int) +
   theme(aspect.ratio = 1) +
+  scale_shape_discrete(name = "grid size\n(meters)") +
+  scale_color_discrete(name="terrain\nattribute")+
   xlab("neighborhood size (meters)") +
   ylab("correlation coefficient (r)") +
-  ggtitle("3-meter DEM")
+  labs(caption = "log transformation applied to fragvol and CaMg") +
+  ggtitle("Correlation Between Soil Properties and Terrain Attributes\nOver 4 Depth Intervals and Several Grid and Neighborhood Sizes")
+```
 
-# 9-meter DEM and Increasing Window Sizes
-filter(sg2, res == 9) %>%
-  ggplot(aes(x = ns, y = values, col = var)) +
+
+### 9-meter DEM and Neighborhood Size Combinations
+```{r 9m-DEM}
+filter(sg2, res == "9") %>%
+  ggplot(aes(x = ns, y = values, col = var, shape = res)) +
+  geom_point(size = 2.5) +
   geom_line(lwd = 1) +
   geom_hline(yintercept = 0) +
-  geom_point(size = 2) +
-  facet_wrap(~ prop + dep_int, ncol = 4) +
+  facet_grid(prop ~ dep_int) +
   theme(aspect.ratio = 1) +
+  scale_shape_discrete(name = "grid size\n(meters)") +
+  scale_color_discrete(name="terrain\nattribute")+
   xlab("neighborhood size (meters)") +
   ylab("correlation coefficient (r)") +
-  ggtitle("9-meter DEM")
+  labs(caption = "log transformation applied to fragvol and CaMg") +
+  ggtitle("Correlation Between Soil Properties and Terrain Attributes\nOver 4 Depth Intervals and Several Neighborhood Sizes")
+```
 
-# 27-meter DEM and Increasing Window Sizes
-filter(sg2, res == 27) %>%
-  ggplot(aes(x = ns, y = values, col = var)) +
-  geom_line(lwd = 1) +
-  geom_hline(yintercept = 0) +
-  geom_point(size = 2) +
-  facet_wrap(~ prop + dep_int, ncol = 4) +
-  theme(aspect.ratio = 1) +
-  xlab("neighborhood size (meters)") +
-  ylab("correlation coefficient (r)") +
-  ggtitle("27-meter DEM")
 
-# All DEMs and 3x3 Window Size
+### All DEM Grid Sizes and 3x3 Window Size Combinations
+```{r 3x3}
 filter(sg2, ws == 3) %>%
-  ggplot(aes(x = res, y = values, col = var)) +
+  ggplot(aes(x = ns, y = values, col = var)) +
+  geom_point(aes(shape = res), size = 2.5) +
   geom_line(lwd = 1) +
   geom_hline(yintercept = 0) +
-  geom_point(size = 2) +
-  facet_wrap(~ prop + dep_int, ncol = 4) +
+  facet_grid(prop ~ dep_int) +
   theme(aspect.ratio = 1) +
+  scale_shape_discrete(name = "grid size\n(meters)") +
+  scale_color_discrete(name="terrain\nattribute")+
   xlab("neighborhood size (meters)") +
   ylab("correlation coefficient (r)") +
-  ggtitle("All DEMs and 3x3 Window Size")
+  labs(caption = "log transformation applied to fragvol and CaMg") +
+  ggtitle("Correlation Between Soil Properties and Terrain Attributes\nOver 4 Depth Intervals and Several Grid Sizes")
+
 ```
