@@ -360,7 +360,7 @@ sg <- {
   subset(geodata, ! var %in% c("elev", "cucon") & ! grepl("slopeR|slopeD", var) & ! ws %in% c(27, 45, 63, 81)) ->.;
   split(., .$res) ->.;
   lapply(., function(x) { 
-    cat("raster stacking and extracting, correlating, stacking, and tidying", x$res[1], "\n")
+    cat("raster stacking and extracting", x$res[1], "\n")
     rs = stack(x$sdat)
     sg = as.data.frame(raster::extract(rs, pts, sp = TRUE))
     
@@ -374,6 +374,7 @@ sg <- {
 
 sg2 <- {
   lapply(sg, function(x) {
+    cat("correlating, stacking, and tidying", x$res[1]
     # split by depth interval
     split(x, x$dep_int) ->.;
     # compute correlation and convert to long format
@@ -472,7 +473,7 @@ filter(sg2, ! res %in% c("6", "45", "81")) %>%
 
 
 ### 9-meter DEM and Neighborhood Size Combinations
-```{r 9m-DEM}
+```{r 9m-DEM, fig.dim = c(8, 10)}
 filter(sg2, res == "9") %>%
   ggplot(aes(x = ns, y = values, col = var, shape = res)) +
   geom_point(size = 2.5) +
@@ -490,7 +491,7 @@ filter(sg2, res == "9") %>%
 
 
 ### All DEM Grid Sizes and 3x3 Window Size Combinations
-```{r 3x3}
+```{r 3x3, fig.dim = c(8, 10)}
 filter(sg2, ws == 3) %>%
   ggplot(aes(x = ns, y = values, col = var)) +
   geom_point(aes(shape = res), size = 2.5) +
