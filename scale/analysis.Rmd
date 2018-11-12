@@ -27,7 +27,7 @@ library(dplyr)
 ## Tidy Old Data
 
 ```{r munge, eval = FALSE}
-load(file = "C:/workspace2/github/thesis_wvu/trunk/scale/lidar_data.RData")
+load(file = "C:/workspace2/github/thesis-wvu/trunk/scale/lidar_data.RData")
 
 lidar <- rbind(
   # Gilmer
@@ -41,37 +41,40 @@ lidar <- rbind(
   stack(jef09m.df),
   stack(jef27m.df)
   )
+lidar$ind <- as.character(lidar$ind)
+
+# split property.filename grouping variable into separate columns
+lidar <- cbind(lidar,
+               data.frame(
+                 do.call("rbind", 
+                         strsplit(lidar$ind, "_")
+                ),
+                stringsAsFactors = FALSE
+                ))
+names(lidar)[3:4] <- c("loc", "var")
+
 lidar <- within(lidar, {
-  loc = ifelse(grepl("gil", ind), "Gilmer", "Jefferson")
+  res = as.numeric(substr(loc, 4, 5))
+  loc = substr(loc, 1, 3)
+  loc = ifelse(loc == "gil", "Gilmer", "Jefferson")
   
-  res = NA
-  res[grepl("01m", ind)] = 1
-  res[grepl("03m", ind)] = 3
-  res[grepl("09m", ind)] = 9
-  res[grepl("27m", ind)] = 27
+  var2 = var
+  var2  = sub("sgp", "sg", var)
+  var = substr(var2, 1, 2)
+  var[var == "sg"] = "slope"
+  var[var == "sa"] = "northness"
+  var[var == "kp"] = "cupro"
+  var[var == "kt"] = "cutan"
+  var = factor(var, levels = c("slope", "northness", "cupro", "cutan"))
   
-  var = NA
-  var[grepl("sgp", ind)] = "slope"
-  var[grepl("sa", ind)]  = "aspect"
-  var[grepl("kp", ind)]  = "cupro"
-  var[grepl("kt", ind)]  = "cutan"
-  
-  ws = NA
-  ws[grepl("3w", ind)]   = 3
-  ws[grepl("5w", ind)]   = 5
-  ws[grepl("7w", ind)]   = 7
-  ws[grepl("9w", ind)]   = 9
-  ws[grepl("15w", ind)]  = 15
-  ws[grepl("21w", ind)]  = 21
-  ws[grepl("27w", ind)]  = 27
-  ws[grepl("45w", ind)]  = 45
-  ws[grepl("63w", ind)]  = 63
+  ws = substr(var2, 3, nchar(var2))
+  ws = as.numeric(sub("w|w360", "", ws))
+  var2 = NULL
   
   ns  = as.factor(res * ws)
   res = as.factor(res)
   ws  = as.factor(ws)
   })
-
 lidar <- lidar[c("loc", "res", "ns", "ws", "var", "values")]
 
 save(lidar, file = "lidar_data2.RData")
@@ -85,56 +88,31 @@ save(lidar, file = "lidar_data2.RData")
 
 load(file = "lidar_data2.RData")
 
-# slope boxplots
-filter(lidar, var == "slope" & loc == "Gilmer") %>%
-ggplot(aes(x = ns, y = values)) +
+lidar <- within(lidar, {
+  values = ifelse(var == "slope" & loc == "Gilmer" & values > 100,    NA, values)
+  values = ifelse(var == "slope" & loc == "Jefferson" & values > 20,     NA, values)
+  values = ifelse(var %in% c("cupro", "cutan") & loc == "Gilmer" & abs(values) > 20, NA, values)
+  values = ifelse(var %in% c("cupro", "cutan") & loc == "Jefferson" & abs(values) > 10, NA, values)
+  })
+
+# Gilmer Boxplots
+filter(lidar, loc == "Gilmer") %>%
+ggplot(aes(x = ns, y = values, fill = res)) +
   geom_boxplot() +
-  facet_wrap(~ res) +
+  facet_wrap(~ var, scales = "free_y") +
+  scale_fill_discrete(name = "grid size\n(meters)") +
   xlab("neighborhood size (meters)") +
-  ylab("slope gradient (%)") + ylim(0, 100) + labs(caption = "y-axis max set at 100") +
+  labs(caption = "slope y-axis max set at 100\ncupro & cutan max set at abs(values) < 20") +
   ggtitle("Gilmer")
 
-filter(lidar, var == "slope" & loc == "Jefferson") %>%
-  ggplot(aes(x = ns, y = values)) +
+# Jefferson Boxplots
+filter(lidar, loc == "Jefferson") %>%
+ggplot(aes(x = ns, y = values, fill = res)) +
   geom_boxplot() +
-  facet_wrap(~ res) +
+  facet_wrap(~ var, scales = "free_y") +
+  scale_fill_discrete(name = "grid size\n(meters)") +
   xlab("neighborhood size (meters)") +
-  ylab("slope gradient (%)") + ylim(0, 20) + labs(caption = "y-axis max set at 20") +
-  ggtitle("Jefferson")
-
-# cupro boxplots
-filter(lidar, var == "cupro" & loc == "Gilmer") %>%
-  ggplot(aes(x = ns, y = values)) +
-  geom_boxplot() +
-  facet_wrap(~ res) +
-  xlab("neighborhood size (meters)") +
-  ylab("profile curvature (radians)") + ylim(-20, 20) + labs(caption = "y-axis min and max set at 20") +
-  ggtitle("Gilmer")
-
-filter(lidar, var == "cupro" & loc == "Jefferson") %>%
-  ggplot(aes(x = ns, y = values)) +
-  geom_boxplot() +
-  facet_wrap(~ res) +
-  xlab("neighborhood size (meters)") +
-  ylab("profile curvature (radians)") + ylim(-20, 20) + labs(caption = "y-axis min and max set at 20") +
-  ggtitle("Jefferson")
-
-
-# cutan boxplots
-filter(lidar, var == "cupro" & loc == "Gilmer") %>%
-  ggplot(aes(x = ns, y = values)) +
-  geom_boxplot() +
-  facet_wrap(~ res) +
-  xlab("neighborhood size (meters)") +
-  ylab("tangential curvature (radians)") + ylim(-20, 20) + labs(caption = "y-axis min and max set at 20") +
-  ggtitle("Gilmer")
-
-filter(lidar, var == "cutan" & loc == "Jefferson") %>%
-  ggplot(aes(x = ns, y = values)) +
-  geom_boxplot() +
-  facet_wrap(~ res) +
-  xlab("neighborhood size (meters)") +
-  ylab("tanngential curvature (radians)") + ylim(-20, 20) + labs(caption = "y-axis min and max set at 20") +
+  labs(caption = "slope y-axis max set at 20\ncupro & cutan max set at abs(values) < 10") +
   ggtitle("Jefferson")
 
 ```
@@ -144,11 +122,9 @@ filter(lidar, var == "cutan" & loc == "Jefferson") %>%
 
 ```{r comparsions}
 
-load(file = "C:/workspace2/github/thesis_wvu/trunk/scale/lidar_data2.RData")
+load(file = "C:/workspace2/github/thesis-wvu/trunk/scale/lidar_data2.RData")
 
 lidar <- within(lidar, {
-  values = ifelse(var == "aspect",  abs(180 - values), values)
-  var    = ifelse(var == "aspect", "northness", var)
   ind    = paste(loc, var, res, ns, sep = "_")
   ns     = as.character(ns)
   })
@@ -201,7 +177,7 @@ filter(lidar_lo, var == "slope" & variable %in% c("MD", "RMSD")) %>%
   ggplot(aes(x = ns, y = value, col = res)) +
   geom_line(lwd = 1) +
   geom_point(size = 2) +
-  facet_wrap(~ variable + loc) +
+  facet_grid(variable ~ loc) +
   scale_color_discrete(name="grid size\n(meters)") +
   xlab("neighborhood size (meters)") +
   ylab("difference (%)") + 
@@ -212,7 +188,7 @@ filter(lidar_lo, var == "northness" & variable %in% c("MD", "RMSD")) %>%
   ggplot(aes(x = ns, y = value, col = res)) +
   geom_line(lwd = 1) +
   geom_point(size = 2) +
-  facet_wrap(~ variable + loc) +
+  facet_grid(variable ~ loc) +
   scale_color_discrete(name="grid size\n(meters)") +
   xlab("neighborhood size (meters)") +
   ylab("differenct (degrees)") + 
@@ -223,7 +199,7 @@ filter(lidar_lo, var == "cupro" & variable %in% c("MD", "RMSD")) %>%
   ggplot(aes(x = ns, y = value, col = res)) +
   geom_line(lwd = 1) +
   geom_point(size = 2) +
-  facet_wrap(~ variable + loc) +
+  facet_grid(variable ~ loc) +
   scale_color_discrete(name="grid size\n(meters)") +
   xlab("neighborhood size (meters)") +
   ylab("difference (radians)") + 
@@ -234,7 +210,7 @@ filter(lidar_lo, var == "cutan" & variable %in% c("MD", "RMSD")) %>%
   ggplot(aes(x = ns, y = value, col = res)) +
   geom_line(lwd = 1) +
   geom_point(size = 2) +
-  facet_wrap(~ variable + loc) +
+  facet_grid(variable ~ loc) +
   scale_color_discrete(name="grid size\n(meters)") +
   xlab("neighborhood size (meters)") +
   ylab("difference (radians)") + 
@@ -249,7 +225,7 @@ filter(lidar_lo, variable %in% "r") %>%
   ggplot(aes(x = ns, y = value, col = res)) +
   geom_line(lwd = 1) +
   geom_point(size = 2) +
-  facet_wrap(~ var + loc, ncol = 2) +
+  facet_grid(var ~ loc) +
   theme(aspect.ratio = 1/2) +
   scale_color_discrete(name="grid size\n(meters)") +
   xlab("neighborhood size (meters)") +
@@ -268,7 +244,7 @@ filter(lidar_lo, variable %in% "r") %>%
 library(aqp)
 library(dplyr)
 
-fp <- "C:/Users/Stephen.Roecker/NextCloud/projects/thesis_wvu"
+fp <- "C:/Users/Stephen.Roecker/NextCloud/projects/thesis-wvu"
 
 s <- read.csv(file.path(fp, "siteAttributes.csv"), stringsAsFactors = FALSE)
 s[1:4] <- lapply(s[1:4], as.numeric)
@@ -354,7 +330,7 @@ pts2 <- st_sf(sh_di,
 
 # stack SAGA rasters
 
-load(file = "C:/workspace2/github/thesis_wvu/trunk/scale/geodata_df.RData")
+load(file = "C:/workspace2/github/thesis-wvu/trunk/scale/geodata_df.RData")
 
 sg <- {
   subset(geodata, ! var %in% c("elev", "cucon") & ! grepl("slopeR|slopeD", var) & ! ws %in% c(27, 45, 63, 81)) ->.;
@@ -443,7 +419,7 @@ sg2 <- {
   do.call("rbind", .) ->.;
   }
 
-save(sg2, file = "C:/Users/Stephen.Roecker/NextCloud/projects/thesis_wvu/soil_correlations.RData")
+save(sg2, file = "C:/Users/Stephen.Roecker/NextCloud/projects/thesis-wvu/soil_correlations.RData")
 
 ```
 
@@ -454,7 +430,7 @@ save(sg2, file = "C:/Users/Stephen.Roecker/NextCloud/projects/thesis_wvu/soil_co
 
 ```{r all-combinations, fig.dim = c(8, 10)}
 
-load(file = "C:/Users/Stephen.Roecker/NextCloud/projects/thesis_wvu/soil_correlations.RData")
+load(file = "C:/Users/Stephen.Roecker/NextCloud/projects/thesis-wvu/soil_correlations.RData")
 
 filter(sg2, ! res %in% c("6", "45", "81")) %>%
   ggplot(aes(x = ns, y = values, col = var, shape = res)) +
