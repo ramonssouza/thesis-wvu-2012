@@ -181,40 +181,18 @@ filter(lidar_lo, var == "slope" & variable %in% c("MD", "RMSD")) %>%
   scale_color_discrete(name="grid size\n(meters)") +
   xlab("neighborhood size (meters)") +
   ylab("difference (%)") + 
-  ggtitle("Slope Gradient")
+  ggtitle("MD and RMSD for Slope Gradient")
 
-# northness difference
-filter(lidar_lo, var == "northness" & variable %in% c("MD", "RMSD")) %>%
+# RMSD differences
+filter(lidar_lo, ! var == "slope" & variable == "RMSD") %>%
   ggplot(aes(x = ns, y = value, col = res)) +
   geom_line(lwd = 1) +
   geom_point(size = 2) +
-  facet_grid(variable ~ loc) +
+  facet_grid(var ~ loc, scales = "free_y") +
   scale_color_discrete(name="grid size\n(meters)") +
   xlab("neighborhood size (meters)") +
-  ylab("differenct (degrees)") + 
-  ggtitle("Northness")
-
-# cupro difference
-filter(lidar_lo, var == "cupro" & variable %in% c("MD", "RMSD")) %>%
-  ggplot(aes(x = ns, y = value, col = res)) +
-  geom_line(lwd = 1) +
-  geom_point(size = 2) +
-  facet_grid(variable ~ loc) +
-  scale_color_discrete(name="grid size\n(meters)") +
-  xlab("neighborhood size (meters)") +
-  ylab("difference (radians)") + 
-  ggtitle("Profile Curvature")
-
-# cutan difference
-filter(lidar_lo, var == "cutan" & variable %in% c("MD", "RMSD")) %>%
-  ggplot(aes(x = ns, y = value, col = res)) +
-  geom_line(lwd = 1) +
-  geom_point(size = 2) +
-  facet_grid(variable ~ loc) +
-  scale_color_discrete(name="grid size\n(meters)") +
-  xlab("neighborhood size (meters)") +
-  ylab("difference (radians)") + 
-  ggtitle("Tangential Curvature")
+  ylab("RMSD") + 
+  ggtitle("RMSD for Northness and Curvatures")
 
 ```
 
@@ -230,7 +208,7 @@ filter(lidar_lo, variable %in% "r") %>%
   scale_color_discrete(name="grid size\n(meters)") +
   xlab("neighborhood size (meters)") +
   ylab("correlation coefficient (r)") + ylim(0, 1) + 
-  ggtitle("Correlations")
+  ggtitle("Correlations for All DEM Derivatives")
 
 ```
 
